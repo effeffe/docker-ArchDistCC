@@ -1,57 +1,30 @@
-ARG DOCKER_IMAGE=archlinux:base-devel
-FROM $DOCKER_IMAGE
+FROM archlinux:base-devel
 
-ARG VERSION="1.0.0"
-ENV VERSION=$VERSION
+RUN pacman-key --init && pacman -Sy archlinux-keyring --noconfirm && pacman -Syu --noconfirm
+RUN pacman -S --noconfirm clang ccache base-devel distcc bash git
+RUN pacman -Scc --noconfirm
 
-ARG BUILD_DATE
-ARG VCS_REF
+# SetUp cross compile
+# create the user
+RUN useradd aur --system --create-home --home-dir /var/aur
+RUN echo "aur ALL=(ALL) NOPASSWD: /usr/bin/pacman" > "/etc/sudoers.d/allow_aur_to_pacman"
+RUN su - aur -c "cd ~ && git clone https://aur.archlinux.org/distccd-alarm.git && cd distccd-alarm && makepkg -si --noconfirm"
 
-LABEL maintainer="Bensuperpc <bensuperpc@gmail.com>"
-LABEL author="Bensuperpc <bensuperpc@gmail.com>"
-LABEL description="A distccd image"
 
-LABEL org.label-schema.schema-version="1.0" \
-  org.label-schema.build-date=$BUILD_DATE \
-  org.label-schema.name="bensuperpc/distcc" \
-  org.label-schema.description="distcc" \
-  org.label-schema.version=$VERSION \
-  org.label-schema.vendor="bensuperpc" \
-  org.label-schema.url="" \
-  org.label-schema.vcs-url="https://github.com/bensuperpc/docker-distcc" \
-  org.label-schema.vcs-ref=$VCS_REF \
-  org.label-schema.docker.cmd="docker build -t bensuperpc/distcc -f Dockerfile ."
+COPY docker-entrypoint.sh /docker-entrypoint.sh
 
-ENV LANG=en_US.utf8
+ENTRYPOINT [ "/usr/bin/bash","-c","/docker-entrypoint.sh"]
 
-RUN pacman-key --init && pacman -Sy archlinux-keyring --noconfirm && pacman -Syu --noconfirm && \
-  pacman -S --noconfirm \
-  clang \
-  ccache \
-  base-devel \
-  distcc \
-  bash \
-  && pacman -Scc --noconfirm
+#distccd --daemon --no-detach --user distcc --port 3632 --stats --stats-port 3633 --log-level info --log-stderr --listen 0.0.0.0 --jobs 10
 
-ENTRYPOINT [ \
-  "distccd", \
-  "--daemon", \
-  "--no-detach", \
-  "--user", "distcc", \
-  "--port", "3632", \
-  "--stats", \
-  "--stats-port", "3633", \
-  "--log-level", "info", \
-  "--log-stderr", \
-  "--listen", "0.0.0.0" \
-  ]
-
+#docker run -d -p 3632-3633:3632-3633 --name gentoo-distcc-ccache --rm -v /var/Shares/PoolData/ccache/:/var/cache/ccache:Z ksmanis/gentoo-distcc:tcp-ccache --stats
 CMD [\
   "--allow", "0.0.0.0/0", \
-  "--nice", "4", \
+  "--nice", "10", \
+  "-p","3632-3638:3632:3638", \
 ]
 
-EXPOSE 3632/tcp 3633/tcp
+EXPOSE 3632-3638
 
 HEALTHCHECK --interval=5m --timeout=3s \
   CMD curl -f http://0.0.0.0:3633/ || exit 1
